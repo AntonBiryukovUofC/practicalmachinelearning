@@ -1,0 +1,112 @@
+---
+title: "Practical Machine Learning Coursera Class - Week 4 Assignment"
+author: "Anton Biryukov"
+date: " Sep 4 2017"
+output: html_document
+
+---
+# Summary
+In this exercise I attempted to classify the manner of doing a bicep curl. Specifically, we wanted to know whether accelorometer data can distinguish between the correct and incorrect exercise technique. For that purpose, a random forest model was trained on data with 5-fold cross-validation; the accuracy of the classifier was then estimated on the 25% of the original dataset hidden during training. The accuracy estimate turned out to be around 98%.
+
+
+# Introduction:
+In this notebook I will attempt to build a predictive model on a Weight Lifting Exercise Dataset. The dataset contains measurements from accelerometers installed on both the participant and the free weight. The participants were instructed to perform the exercise in several manners: a correct one, and five intentionally set up to be incorrect. Specifically, (as taken from the source website):
+
+*"Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E)."*
+
+The question the predictive model aims to answer here is as follows:
+*"Is it possible to predict the manner in which the participant performs the exercise?"*
+
+# Loading the dataset:
+I would like to first load the dataset, and look at the fractions that each class takes in the training sample, as well as take a look whether the classes are separable in the PC1 vs PC2 domain. This will give me some idea as to what kind of class confusion I should expect.
+
+Read the training/testing data csv-s:
+```{r,cache=T}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(GGally)
+
+train.df <- tbl_df(read.csv('../pml-training.csv',stringsAsFactors = F,na.strings = c("","NA"))) %>% select(-X)
+test.df <- tbl_df(read.csv('../pml-testing.csv',stringsAsFactors = F,na.strings = c("","NA"))) %>% select(-c(problem_id,X)) %>% mutate(classe='DUM')
+print(train.df)
+table(train.df$classe)
+```
+Class distribution is skewed towards the "correct manner of exercise", but otherwise is not very imbalanced. Therefore, I will restrain from applying any class balance corrections. It also seems meaningful to drop the time-date related predictors out of the dataset - the manner to be guessed in the future (test) set should not depend on when the exercise was performed. I would also want to Looks like a few columns have a lot of NA in them, let's see if I can drop those with zero variance:
+```{r}
+nz.ind <- nearZeroVar(train.df,saveMetrics = F)
+nz.metrics <- nearZeroVar(train.df,saveMetrics = T)
+```
+
+Now, I'll also drop all the columns where the percentage of NAs is >95%:
+```{r}
+fracNA <- (colMeans(is.na(train.df)) > 0.95)
+keepCol <- names(train.df)[!fracNA]
+
+train.df.nz <- tbl_df(train.df[,-nz.ind ]) %>% select(-starts_with("raw_timestamp"),-cvtd_timestamp,-num_window) %>% select(one_of(keepCol))
+test.df.nz <- tbl_df(test.df[,-nz.ind]) %>% select(-starts_with("raw_timestamp"),-cvtd_timestamp,-num_window) %>% select(one_of(keepCol))
+print(train.df.nz)
+
+
+```
+
+Ok, so a few columns are thrown out from both train and test now for the consistency. Let's look at the data in the PC space:
+```{r}
+pcObj <- preProcess(train.df.nz,method="pca",thresh=0.98)
+train.pc <- predict(pcObj,train.df.nz)
+#ggplot(data=train.pc,aes(x=PC1,y=PC2,col=user_name,alpha=user_name)) + geom_point()
+ggplot(data=train.pc,aes(x=PC1,y=PC2,col=classe,shape=user_name)) + geom_point(alpha=0.4)
+print(pcObj)
+
+```
+
+A few conclusions can be drawn straight from here:
+- A lot of columns remained after PCA - the problem can be fairly complex
+- The first two components do not show any evident class separation
+- Class separation varies among the users, thus user_name might be one of the top important predictors
+
+Given that:
+- the classification trees and random forests built of CARTs seem to be performing fairly well for many datasets,
+- the model selection is out of scope of this project
+I decided to pick randomForest as the classifier for this problem. I also would like to keep a part of the training test hidden from the training procedure ("out-of-sample data"), with a train-test split of 75% - 25%, respectively.
+
+For the sake of speed of computation and the fact that a lot of points show significant overlap (e.g. little information added), I would like to "trim" the data here a little bit by downsampling.
+
+Cross-validation will be done with 5-fold method, and we will evaluate the out of sample accuracy on that hidden set.
+
+Therefore, below I would like to see how random forest performs for this problem:
+
+```{r}
+# Downsampling here
+ind.ds <- sample(nrow(train.df.nz),size = round(nrow(train.df.nz)/3) )
+train.df.nz.ds <- train.df.nz[ind.ds,]
+# Partition the dataset
+train.inds <- createDataPartition(train.df.nz.ds$classe,p=0.75,list = F)
+rf.train <- train.df.nz.ds[train.inds,] %>% mutate(classe = as.factor(classe),user_name = as.factor(user_name))
+rf.test <- train.df.nz.ds[-train.inds,] %>% mutate(classe = as.factor(classe),user_name = as.factor(user_name))
+
+# Finally train the RF
+ctrl <- trainControl(method="cv",number = 5,classProbs = T,verboseIter = T)
+rf.model <- caret::train(classe ~ . ,method='rf',tuneLength=10,trControl  =ctrl,verbose=T,data = rf.train)
+
+```
+
+Let's now test the predictions:
+
+```{r}
+class.test <- predict(rf.model,rf.test)
+message(sprintf("Accuracy on test = %3.2f",mean(class.test == rf.test$classe)))
+class.real.test <-predict(rf.model,test.df.nz) 
+# For the final quiz, predictions here:
+print(test.df.nz %>% mutate(classe = class.real.test))
+```
+
+This set of predictions actually have me 20/20 points correct for the final quiz, so I guess the accuracy estimate of 98% on the "test" set from the training is fairly accurate.
+
+Finally, I ll show the importance plot:
+```{r}
+varImpPlot(rf.model$finalModel)
+```
+The plot makes sense if you read carefully what kind of motion character corresponded to each manner and if you're familiar with the exercise itself. Although, it seems quite intersting that user_name is not one of the top importance variables..
+
+
