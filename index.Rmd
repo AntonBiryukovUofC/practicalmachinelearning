@@ -17,7 +17,7 @@ In this notebook I will attempt to build a predictive model on a Weight Lifting 
 The question the predictive model aims to answer here is as follows:
 *"Is it possible to predict the manner in which the participant performs the exercise?"*
 
-# Loading the dataset:
+# Loading & Cleaning the dataset:
 I would like to first load the dataset, and look at the fractions that each class takes in the training sample, as well as take a look whether the classes are separable in the PC1 vs PC2 domain. This will give me some idea as to what kind of class confusion I should expect.
 
 Read the training/testing data csv-s:
@@ -26,6 +26,7 @@ library(dplyr)
 library(ggplot2)
 library(caret)
 library(GGally)
+library(magrittr)
 
 train.df <- tbl_df(read.csv('../pml-training.csv',stringsAsFactors = F,na.strings = c("","NA"))) %>% select(-X)
 test.df <- tbl_df(read.csv('../pml-testing.csv',stringsAsFactors = F,na.strings = c("","NA"))) %>% select(-c(problem_id,X)) %>% mutate(classe='DUM')
@@ -34,8 +35,9 @@ table(train.df$classe)
 ```
 Class distribution is skewed towards the "correct manner of exercise", but otherwise is not very imbalanced. Therefore, I will restrain from applying any class balance corrections. It also seems meaningful to drop the time-date related predictors out of the dataset - the manner to be guessed in the future (test) set should not depend on when the exercise was performed. I would also want to Looks like a few columns have a lot of NA in them, let's see if I can drop those with zero variance:
 ```{r}
-nz.ind <- nearZeroVar(train.df,saveMetrics = F)
-nz.metrics <- nearZeroVar(train.df,saveMetrics = T)
+
+nz.ind <- caret::nearZeroVar(train.df,saveMetrics = F)
+nz.metrics <- caret::nearZeroVar(train.df,saveMetrics = T)
 ```
 
 Now, I'll also drop all the columns where the percentage of NAs is >95%:
@@ -49,6 +51,8 @@ print(train.df.nz)
 
 
 ```
+
+# Exploratory analysis
 
 Ok, so a few columns are thrown out from both train and test now for the consistency. Let's look at the data in the PC space:
 ```{r}
@@ -73,12 +77,13 @@ I decided to pick randomForest as the classifier for this problem. I also would 
 For the sake of speed of computation and the fact that a lot of points show significant overlap (e.g. little information added), I would like to "trim" the data here a little bit by downsampling.
 
 Cross-validation will be done with 5-fold method, and we will evaluate the out of sample accuracy on that hidden set.
+# Training the classifier
 
 Therefore, below I would like to see how random forest performs for this problem:
 
 ```{r}
 # Downsampling here
-ind.ds <- sample(nrow(train.df.nz),size = round(nrow(train.df.nz)/3) )
+ind.ds <- sample(nrow(train.df.nz),size = round(nrow(train.df.nz)/5) )
 train.df.nz.ds <- train.df.nz[ind.ds,]
 # Partition the dataset
 train.inds <- createDataPartition(train.df.nz.ds$classe,p=0.75,list = F)
@@ -103,6 +108,7 @@ print(test.df.nz %>% mutate(classe = class.real.test))
 
 This set of predictions actually have me 20/20 points correct for the final quiz, so I guess the accuracy estimate of 98% on the "test" set from the training is fairly accurate.
 
+# Importance plot
 Finally, I ll show the importance plot:
 ```{r}
 varImpPlot(rf.model$finalModel)
