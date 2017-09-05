@@ -2,11 +2,12 @@
 title: "Practical Machine Learning Coursera Class - Week 4 Assignment"
 author: "Anton Biryukov"
 date: " Sep 4 2017"
-output: html_document
-
+output: 
+  html_document: 
+    keep_md: yes
 ---
 # Summary
-In this exercise I attempted to classify the manner of doing a bicep curl. Specifically, we wanted to know whether accelorometer data can distinguish between the correct and incorrect exercise technique. For that purpose, a random forest model was trained on data with 5-fold cross-validation; the accuracy of the classifier was then estimated on the 25% of the original dataset hidden during training. The accuracy estimate turned out to be around 98%.
+In this exercise I attempted to classify the manner of doing a bicep curl. Specifically, we wanted to know whether accelorometer data can distinguish between the correct and incorrect exercise technique. For that purpose, a random forest model was trained on data with 5-fold cross-validation; the accuracy of the classifier was then estimated on the 25% of the original dataset hidden during training. **The accuracy estimate turned out to be around 97% with the out of sample error estimate ~3%.**
 
 
 # Introduction:
@@ -42,6 +43,8 @@ nz.metrics <- caret::nearZeroVar(train.df,saveMetrics = T)
 
 Now, I'll also drop all the columns where the percentage of NAs is >95%:
 ```{r}
+library(dplyr) # knitr is being annoying
+
 fracNA <- (colMeans(is.na(train.df)) > 0.95)
 keepCol <- names(train.df)[!fracNA]
 
@@ -56,6 +59,7 @@ print(train.df.nz)
 
 Ok, so a few columns are thrown out from both train and test now for the consistency. Let's look at the data in the PC space:
 ```{r}
+library(caret)
 pcObj <- preProcess(train.df.nz,method="pca",thresh=0.98)
 train.pc <- predict(pcObj,train.df.nz)
 #ggplot(data=train.pc,aes(x=PC1,y=PC2,col=user_name,alpha=user_name)) + geom_point()
@@ -72,11 +76,12 @@ A few conclusions can be drawn straight from here:
 Given that:
 - the classification trees and random forests built of CARTs seem to be performing fairly well for many datasets,
 - the model selection is out of scope of this project
-I decided to pick randomForest as the classifier for this problem. I also would like to keep a part of the training test hidden from the training procedure ("out-of-sample data"), with a train-test split of 75% - 25%, respectively.
+I decided to pick randomForest as the classifier for this problem, as ensemble methods built on top of simple (weak) predictors tend to significantly boost their performance. I also would like to keep a part of the training test hidden from the training procedure ("out-of-sample data"), with a train-test split of 75% - 25%, respectively.
 
 For the sake of speed of computation and the fact that a lot of points show significant overlap (e.g. little information added), I would like to "trim" the data here a little bit by downsampling.
 
 Cross-validation will be done with 5-fold method, and we will evaluate the out of sample accuracy on that hidden set.
+
 # Training the classifier
 
 Therefore, below I would like to see how random forest performs for this problem:
@@ -92,7 +97,7 @@ rf.test <- train.df.nz.ds[-train.inds,] %>% mutate(classe = as.factor(classe),us
 
 # Finally train the RF
 ctrl <- trainControl(method="cv",number = 5,classProbs = T,verboseIter = T)
-rf.model <- caret::train(classe ~ . ,method='rf',tuneLength=10,trControl  =ctrl,verbose=T,data = rf.train)
+rf.model <- caret::train(classe ~ . ,method='rf',tuneLength=5,trControl  =ctrl,verbose=T,data = rf.train)
 
 ```
 
@@ -106,7 +111,7 @@ class.real.test <-predict(rf.model,test.df.nz)
 print(test.df.nz %>% mutate(classe = class.real.test))
 ```
 
-This set of predictions actually have me 20/20 points correct for the final quiz, so I guess the accuracy estimate of 98% on the "test" set from the training is fairly accurate.
+This set of predictions actually have me 20/20 points correct for the final quiz, so I guess the accuracy estimate of 97% (i.e. out-of-sample error ~ 3%) on the "test" set from the training is fairly accurate.
 
 # Importance plot
 Finally, I ll show the importance plot:
